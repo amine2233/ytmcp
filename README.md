@@ -31,6 +31,46 @@ Once connected, your AI can:
 
 The server supports three access tiers. Pick the one that fits your use case.
 
+### Quick start (this fork, local build)
+
+```bash
+npm ci && npm run build          # output goes to build/
+```
+
+Register the local build with **Claude Code** (user scope, available in every project):
+
+```bash
+claude mcp add ytmcp -s user \
+  -e GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com \
+  -e GOOGLE_CLIENT_SECRET=your-client-secret \
+  -e YTMCP_TOKENS_B64=$(base64 < ~/.ytmcp_tokens.json | tr -d '\n') \
+  -- node /absolute/path/to/ytmcp/build/server/index.js
+```
+
+Or in a **Claude Desktop** / MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "ytmcp": {
+      "command": "node",
+      "args": ["/absolute/path/to/ytmcp/build/server/index.js"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "your-client-id.apps.googleusercontent.com",
+        "GOOGLE_CLIENT_SECRET": "your-client-secret",
+        "YTMCP_TOKENS_B64": "base64-of-your-token-json"
+      }
+    }
+  }
+}
+```
+
+Then just ask your AI in natural language — e.g. *"transcribe this YouTube video"*, *"what's trending in tech in France"*, *"list my subscriptions"*. It picks the right tool automatically.
+
+- On a normal host, drop `YTMCP_TOKENS_B64` and rely on `~/.ytmcp_tokens.json` (created on first login).
+- In sandboxed hosts where interactive login can't run, keep `YTMCP_TOKENS_B64` — see [OAuth 2.0 → Sandboxed / headless hosts](#oauth-20).
+- Omit `GOOGLE_*_CLIENT_*` entirely for guest mode (transcripts only), or pass `GOOGLE_API_KEY` for public-data tools without OAuth.
+
 ### Guest Mode (No Setup)
 
 Works out of the box. The `get_video_transcript` tool uses `yt-dlp` to extract transcripts without any API credentials.
@@ -120,6 +160,19 @@ On your first tool call, the AI will share a login link. Click it, authorize the
 **4. Signing out**
 
 Ask your AI to call `revoke_oauth_token` to sign out and delete your stored credentials at any time.
+
+**Sandboxed / headless hosts (no interactive login)**
+
+In sandboxed MCP hosts (e.g. Claude Desktop "Cowork", Claude Code) the interactive `localhost:31415` login can't complete, and the persisted `~/.ytmcp_tokens.json` may live in an isolated home. Inject the token via env instead — no wrapper, no browser step:
+
+| Variable | Purpose |
+| --- | --- |
+| `YTMCP_TOKENS_B64` | Base64 of the token JSON. Generate: `base64 < ~/.ytmcp_tokens.json \| tr -d '\n'` |
+| `YTMCP_TOKENS` | Raw token JSON (alternative to the base64 form) |
+| `GOOGLE_REFRESH_TOKEN` | Just the refresh token; the server builds `{ refresh_token }` from it |
+| `YTMCP_TOKEN_PATH` | Override the persisted-token location (default `~/.ytmcp_tokens.json`) |
+
+The env token is used only when no token file exists; it is then written to `YTMCP_TOKEN_PATH` so refreshed tokens keep persisting. When both `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and `GOOGLE_API_KEY` are set, OAuth wins (so OAuth-only tools like `list_subscriptions {mine:true}` work).
 
 </details>
 

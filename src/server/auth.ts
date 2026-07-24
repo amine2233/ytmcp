@@ -11,13 +11,30 @@ const SCOPES = [
     'https://www.googleapis.com/auth/youtube.force-ssl'
 ];
 
-const TOKEN_PATH = path.join(os.homedir(), '.ytmcp_tokens.json');
+function tokenPath(): string {
+    return process.env.YTMCP_TOKEN_PATH || path.join(os.homedir(), '.ytmcp_tokens.json');
+}
+
+// Token injected via env (for sandboxed hosts with no persisted file / no interactive login).
+// Order: YTMCP_TOKENS_B64 (base64 JSON), YTMCP_TOKENS (raw JSON), GOOGLE_REFRESH_TOKEN.
+function envTokens(): any | null {
+    if (process.env.YTMCP_TOKENS_B64) {
+        return JSON.parse(Buffer.from(process.env.YTMCP_TOKENS_B64, 'base64').toString('utf-8'));
+    }
+    if (process.env.YTMCP_TOKENS) {
+        return JSON.parse(process.env.YTMCP_TOKENS);
+    }
+    if (process.env.GOOGLE_REFRESH_TOKEN) {
+        return { refresh_token: process.env.GOOGLE_REFRESH_TOKEN };
+    }
+    return null;
+}
 
 async function secureTokenFile(): Promise<void> {
     try {
-        const stats = await fs.stat(TOKEN_PATH);
+        const stats = await fs.stat(tokenPath());
         if (stats) {
-            await fs.chmod(TOKEN_PATH, 0o600);
+            await fs.chmod(tokenPath(), 0o600);
         }
     } catch (err) {
     }
@@ -27,21 +44,22 @@ let activeAuthServer: any = null;
 let pendingAuthUrl: string = '';
 
 export async function authorize(apiKey?: string): Promise<{ type: string, key?: string, client?: any }> {
-    // Priority 1: CLI-provided API Key
+    // Priority 1: CLI-provided API Key (explicit override)
     if (apiKey) {
         return { type: 'apiKey', key: apiKey };
-    }
-
-    // Priority 2: Environment-provided API Key
-    if (process.env.GOOGLE_API_KEY) {
-        return { type: 'apiKey', key: process.env.GOOGLE_API_KEY };
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
+    // Priority 2: OAuth if client credentials are set. Prefer OAuth over the API key so
+    // OAuth-only tools (e.g. mine=true) work; a youtube.readonly client also reads public data.
     if (!clientId || !clientSecret) {
-        // Worst Scenario: No credentials found. 
+        // Priority 3: Environment-provided API Key
+        if (process.env.GOOGLE_API_KEY) {
+            return { type: 'apiKey', key: process.env.GOOGLE_API_KEY };
+        }
+        // Priority 4: No credentials found.
         // We return a "guest" indicator instead of throwing, so the server can still start.
         return { type: 'guest' };
     }
@@ -52,28 +70,37 @@ export async function authorize(apiKey?: string): Promise<{ type: string, key?: 
         'http://localhost:31415/oauth2callback'
     );
 
+    // Setup an event listener to automatically save refreshed tokens
+    oauth2Client.on('tokens', async (tokens: any) => {
+        try {
+            // Merge new tokens with any existing ones (so we don't lose the refresh_token)
+            const currentTokenData = await fs.readFile(tokenPath(), 'utf-8').catch(() => '{}');
+            const parsedCurrent = JSON.parse(currentTokenData);
+            const mergedTokens = { ...parsedCurrent, ...tokens };
+
+            await fs.writeFile(tokenPath(), JSON.stringify(mergedTokens));
+            await secureTokenFile();
+        } catch (saveErr) {
+            console.error('Failed to save refreshed tokens:', saveErr);
+        }
+    });
+
     try {
         await secureTokenFile();
-        const token = await fs.readFile(TOKEN_PATH, 'utf-8');
+        const token = await fs.readFile(tokenPath(), 'utf-8');
         oauth2Client.setCredentials(JSON.parse(token));
-
-        // Setup an event listener to automatically save refreshed tokens
-        oauth2Client.on('tokens', async (tokens: any) => {
-            try {
-                // Merge new tokens with any existing ones (so we don't lose the refresh_token)
-                const currentTokenData = await fs.readFile(TOKEN_PATH, 'utf-8').catch(() => '{}');
-                const parsedCurrent = JSON.parse(currentTokenData);
-                const mergedTokens = { ...parsedCurrent, ...tokens };
-
-                await fs.writeFile(TOKEN_PATH, JSON.stringify(mergedTokens));
-                await secureTokenFile();
-            } catch (saveErr) {
-                console.error('Failed to save refreshed tokens:', saveErr);
-            }
-        });
-
         return { type: 'oauth', client: oauth2Client };
     } catch (err: any) {
+        // No persisted token file. Try an env-injected token (sandboxed hosts, no interactive login).
+        const injected = envTokens();
+        if (injected) {
+            oauth2Client.setCredentials(injected);
+            // Persist so the refresh-merge listener above has a file to write back to.
+            await fs.writeFile(tokenPath(), JSON.stringify(injected));
+            await secureTokenFile();
+            return { type: 'oauth', client: oauth2Client };
+        }
+
         startAuthServer(oauth2Client);
 
         // Return a specific crafted prompt instructing the LLM to ask the user nicely
@@ -99,14 +126,14 @@ export async function revokeToken(): Promise<void> {
     );
 
     try {
-        const tokenData = await fs.readFile(TOKEN_PATH, 'utf-8');
+        const tokenData = await fs.readFile(tokenPath(), 'utf-8');
         const tokens = JSON.parse(tokenData);
 
         if (tokens.access_token || tokens.refresh_token) {
             await oauth2Client.revokeToken(tokens.access_token || tokens.refresh_token);
         }
 
-        await fs.unlink(TOKEN_PATH);
+        await fs.unlink(tokenPath());
         console.error('Tokens revoked and local storage cleared.');
     } catch (err: any) {
         if (err.code === 'ENOENT') {
@@ -175,9 +202,9 @@ function startAuthServer(oauth2Client: any): void {
                 code: code,
                 codeVerifier: codeVerifier
             });
-            await fs.writeFile(TOKEN_PATH, JSON.stringify(tokens));
+            await fs.writeFile(tokenPath(), JSON.stringify(tokens));
             await secureTokenFile();
-            console.error('Token stored securely to', TOKEN_PATH);
+            console.error('Token stored securely to', tokenPath());
             res.send('<html><body style="font-family: sans-serif; padding: 2rem;"><h2>Authentication successful!</h2><p>You can close this tab and return to Claude to continue your request.</p></body></html>');
         } catch (err: any) {
             console.error('Error retrieving access token', err);
