@@ -86,6 +86,26 @@ Works out of the box. The `get_video_transcript` tool uses `yt-dlp` to extract t
 }
 ```
 
+### Run from a Git Branch (Fork)
+
+Use `github:<owner>/<repo>#<ref>` to run a specific branch, tag, or commit instead of the npm release. The `prepare` script builds the project on install.
+
+```json
+{
+  "mcpServers": {
+    "youtube-mcp": {
+      "command": "npx",
+      "args": ["-y", "github:amine2233/ytmcp#fix/running-oauth2"],
+      "env": {
+        "GOOGLE_API_KEY": "YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+npx caches git installs; pin a commit sha (`#<sha>`) to force a refresh.
+
 ---
 
 ### API Key (Recommended)
