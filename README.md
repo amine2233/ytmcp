@@ -73,7 +73,7 @@ Then just ask your AI in natural language — e.g. *"transcribe this YouTube vid
 
 ### Guest Mode (No Setup)
 
-Works out of the box. The `get_video_transcript` tool uses `yt-dlp` to extract transcripts without any API credentials.
+Works out of the box. The `get_video_transcript` tool uses `yt-dlp` to extract transcripts without any API credentials. Install it separately (`brew install yt-dlp`); set `YT_DLP_PATH` if it is not on `PATH`.
 
 ```json
 {

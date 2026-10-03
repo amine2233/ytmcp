@@ -1,11 +1,18 @@
-import path from "path";
-import fs from "fs";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import ytDlp, { create as createYtDlp } from "yt-dlp-exec";
 
-const binYtDlpPath = path.resolve(process.cwd(), "bin", "yt-dlp");
-const ytDlpRunner = fs.existsSync(binYtDlpPath) ? createYtDlp(binYtDlpPath) : ytDlp;
+const execFileAsync = promisify(execFile);
+
+async function ytDlpRunner(url: string, userAgent: string): Promise<any> {
+    const { stdout } = await execFileAsync(
+        process.env.YT_DLP_PATH || "yt-dlp",
+        ["--dump-json", "--skip-download", "--user-agent", userAgent, "--add-header", "Accept-Language: en-US,en;q=0.9", url],
+        { maxBuffer: 64 * 1024 * 1024 },
+    );
+    return JSON.parse(stdout);
+}
 import {
     ytApiRequest,
     success,
@@ -182,14 +189,7 @@ export function registerVideoTools(server: McpServer): void {
                 const defaultUserAgent = process.env.YT_DLP_USER_AGENT || process.env.USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
                 const selectedUserAgent = args.user_agent || defaultUserAgent;
 
-                const output: any = await ytDlpRunner(`https://www.youtube.com/watch?v=${args.video_id}`, {
-                    dumpJson: true,
-                    skipDownload: true,
-                    userAgent: selectedUserAgent,
-                    addHeader: [
-                        'Accept-Language: en-US,en;q=0.9',
-                    ],
-                });
+                const output: any = await ytDlpRunner(`https://www.youtube.com/watch?v=${args.video_id}`, selectedUserAgent);
 
                 const autoSubs: Record<string, any[]> = output.automatic_captions || {};
                 const manualSubs: Record<string, any[]> = output.subtitles || {};
