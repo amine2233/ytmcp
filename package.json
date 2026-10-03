@@ -16,6 +16,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepare": "tsc",
     "start": "node build/server/index.js",
     "test:client": "node scripts/test-client.js",
     "show:tools": "node scripts/show-tools-output.js"

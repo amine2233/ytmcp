@@ -1,0 +1,32 @@
+[tools]
+node = "22"
+
+[env]
+_.file = ".env"
+
+[tasks.install]
+run = "npm install"
+
+[tasks.build]
+depends = ["install"]
+run = "npm run build"
+
+[tasks.start]
+depends = ["build"]
+run = "npm start"
+
+[tasks.test]
+depends = ["build"]
+run = "npm run test:client"
+
+[tasks.tools]
+depends = ["build"]
+run = "npm run show:tools"
+
+[tasks.npx]
+description = "Run the fork straight from GitHub via npx"
+run = "npx -y github:amine2233/ytmcp"
+
+[tasks.npx-inspect]
+description = "Explore the fork with the MCP inspector"
+run = "npx -y @modelcontextprotocol/inspector npx -y github:amine2233/ytmcp"
